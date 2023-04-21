@@ -191,6 +191,10 @@ where
                 Poll::Ready(Some(dns_request)) => {
                     // if there is no peer, this connection should die...
                     let (dns_request, serial_response): (DnsRequest, _) = dns_request.into_parts();
+                    // SAFETY: OneshotDnsResponse is basically a pointer (Arc) anyway
+                    let ptr_for_dumping: *const () = unsafe {
+                        std::mem::transmute_copy::<super::OneshotDnsResponse, _>(&serial_response)
+                    };
 
                     // Try to forward the `DnsResponseStream` to the requesting task. If we fail,
                     // it must be because the requesting task has gone away / is no longer
@@ -199,7 +203,7 @@ where
                     match serial_response.send_response(io_stream.send_message(dns_request)) {
                         Ok(()) => (),
                         Err(_) => {
-                            warn!("failed to associate send_message response to the sender");
+                            warn!("failed to associate send_message response to the sender; sender: {ptr_for_dumping:?}");
                         }
                     }
                 }
