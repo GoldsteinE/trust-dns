@@ -180,7 +180,7 @@ impl DnsHandle for BufDnsRequestStreamHandle {
             ProtoError::from(ProtoErrorKind::Busy)
         }));
 
-        DnsResponseReceiver::Receiver(oneshot)
+        DnsResponseReceiver::Receiver(LogOnDrop(oneshot))
     }
 }
 
@@ -221,20 +221,32 @@ impl OneshotDnsResponse {
     }
 }
 
+/// Fuck
+pub struct LogOnDrop(oneshot::Receiver<DnsResponseStream>);
+
+impl Drop for LogOnDrop {
+    fn drop(&mut self) {
+        fn print_backtrace(
+            reason: &'static str,
+            receiver: *const oneshot::Receiver<DnsResponseStream>,
+        ) {
+            let bt = backtrace::Backtrace::new();
+            let ptr = unsafe { *(receiver as *const *const ()) };
+            warn!("WTF dropping receiver on {reason}; backtrace = {bt:#?}, ptr = {ptr:?}");
+        }
+
+        print_backtrace("drop", &self.0);
+    }
+}
+
 /// A Stream that wraps a oneshot::Receiver<Stream> and resolves to items in the inner Stream
 pub enum DnsResponseReceiver {
     /// The receiver
-    Receiver(oneshot::Receiver<DnsResponseStream>),
+    Receiver(LogOnDrop),
     /// The stream once received
     Received(DnsResponseStream),
     /// Error during the send operation
     Err(Option<ProtoError>),
-}
-
-fn print_backtrace(reason: &'static str, receiver: *const oneshot::Receiver<DnsResponseStream>) {
-    let bt = backtrace::Backtrace::new();
-    let ptr = unsafe { *(receiver as *const *const ()) };
-    warn!("WTF dropping receiver on {reason}; backtrace = {bt:#?}, ptr = {ptr:?}");
 }
 
 impl Stream for DnsResponseReceiver {
@@ -243,14 +255,12 @@ impl Stream for DnsResponseReceiver {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             *self = match *self.as_mut() {
-                Self::Receiver(ref mut receiver) => {
+                Self::Receiver(LogOnDrop(ref mut receiver)) => {
                     let mut receiver = Pin::new(receiver);
                     let future = ready!(receiver
                         .as_mut()
                         .poll(cx)
                         .map_err(|_| ProtoError::from("receiver was canceled")))?;
-
-                    print_backtrace("poll", receiver.as_ref().get_ref());
 
                     Self::Received(future)
                 }
@@ -259,14 +269,6 @@ impl Stream for DnsResponseReceiver {
                 }
                 Self::Err(ref mut err) => return Poll::Ready(err.take().map(Err)),
             };
-        }
-    }
-}
-
-impl Drop for DnsResponseReceiver {
-    fn drop(&mut self) {
-        if let Self::Receiver(receiver) = self {
-            print_backtrace("drop", receiver);
         }
     }
 }
