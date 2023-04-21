@@ -212,6 +212,7 @@ impl OneshotDnsRequest {
     }
 }
 
+#[repr(transparent)]
 struct OneshotDnsResponse(oneshot::Sender<DnsResponseStream>);
 
 impl OneshotDnsResponse {

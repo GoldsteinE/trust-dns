@@ -193,7 +193,9 @@ where
                     let (dns_request, serial_response): (DnsRequest, _) = dns_request.into_parts();
                     // SAFETY: OneshotDnsResponse is basically a pointer (Arc) anyway
                     let ptr_for_dumping: *const () = unsafe {
-                        std::mem::transmute_copy::<super::OneshotDnsResponse, _>(&serial_response)
+                        std::mem::transmute_copy::<super::OneshotDnsResponse, *const ()>(
+                            &serial_response,
+                        )
                     };
                     // Actually, it's an Arc, so we can take it one step further
                     let ptr_ref = &ptr_for_dumping;
@@ -204,6 +206,11 @@ where
                     let arc_ref =
                         unsafe { std::mem::transmute::<&*const (), &std::sync::Arc<u8>>(ptr_ref) };
 
+                    // So, how many things are actually holding our channel?
+                    let strong_count = std::sync::Arc::strong_count(arc_ref);
+                    // Weak count should really, really be zero.
+                    let weak_count = std::sync::Arc::weak_count(arc_ref);
+
                     // Try to forward the `DnsResponseStream` to the requesting task. If we fail,
                     // it must be because the requesting task has gone away / is no longer
                     // interested. In that case, we can just log a warning, but there's no need
@@ -211,15 +218,11 @@ where
                     match serial_response.send_response(io_stream.send_message(dns_request)) {
                         Ok(()) => (),
                         Err(_) => {
-                            // So, how many things are actually holding our channel?
-                            let strong_count = std::sync::Arc::strong_count(arc_ref);
-                            // Weak count should really, really be zero.
-                            let weak_count = std::sync::Arc::weak_count(arc_ref);
                             warn!(
                                 concat!(
                                     "failed to associate send_message response to the sender; ",
-                                    "sender: {:?}",
-                                    "ref count: {}",
+                                    "sender: {:?}; ",
+                                    "ref count: {}; ",
                                     "weak ref count: {}",
                                 ),
                                 ptr_for_dumping, strong_count, weak_count,
