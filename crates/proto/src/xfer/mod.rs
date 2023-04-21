@@ -231,6 +231,12 @@ pub enum DnsResponseReceiver {
     Err(Option<ProtoError>),
 }
 
+fn print_backtrace(reason: &'static str, receiver: *const oneshot::Receiver<DnsResponseStream>) {
+    let bt = backtrace::Backtrace::new();
+    let ptr = unsafe { *(receiver as *const *const ()) };
+    warn!("WTF dropping receiver on {reason}; backtrace = {bt:#?}, ptr = {ptr:?}");
+}
+
 impl Stream for DnsResponseReceiver {
     type Item = Result<DnsResponse, ProtoError>;
 
@@ -238,10 +244,14 @@ impl Stream for DnsResponseReceiver {
         loop {
             *self = match *self.as_mut() {
                 Self::Receiver(ref mut receiver) => {
-                    let receiver = Pin::new(receiver);
+                    let mut receiver = Pin::new(receiver);
                     let future = ready!(receiver
+                        .as_mut()
                         .poll(cx)
                         .map_err(|_| ProtoError::from("receiver was canceled")))?;
+
+                    print_backtrace("poll", receiver.as_ref().get_ref());
+
                     Self::Received(future)
                 }
                 Self::Received(ref mut stream) => {
@@ -249,6 +259,14 @@ impl Stream for DnsResponseReceiver {
                 }
                 Self::Err(ref mut err) => return Poll::Ready(err.take().map(Err)),
             };
+        }
+    }
+}
+
+impl Drop for DnsResponseReceiver {
+    fn drop(&mut self) {
+        if let Self::Receiver(receiver) = self {
+            print_backtrace("drop", receiver);
         }
     }
 }
