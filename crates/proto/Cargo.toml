@@ -36,6 +36,7 @@ codecov = { repository = "bluejekyll/trust-dns", branch = "main", service = "git
 maintenance = { status = "actively-developed" }
 
 [features]
+backtrace = []
 dns-over-tls = []
 dns-over-rustls = ["dns-over-tls", "rustls", "rustls-pemfile", "tokio-rustls", "webpki"]
 dns-over-native-tls = ["dns-over-tls", "native-tls", "tokio-native-tls"]
@@ -71,7 +72,7 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1.43"
-backtrace = { version = "0.3.50", optional = true }
+backtrace = "0.3.50"
 bytes = { version = "1", optional = true }
 cfg-if = "1"
 data-encoding = "2.2.0"
